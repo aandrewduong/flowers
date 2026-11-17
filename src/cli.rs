@@ -5,6 +5,8 @@ use clap::{Parser, value_parser};
 use crate::ansi::ColorDepth;
 use crate::flower::Species;
 use crate::garden::MAX_FLOWERS;
+use crate::sky::Sky;
+use crate::weather::Weather;
 
 /// Smallest garden that still fits a flower.
 pub const MIN_COLUMNS: u16 = 16;
@@ -45,6 +47,22 @@ pub struct Args {
     /// Leave out the grass
     #[arg(long)]
     pub no_grass: bool,
+
+    /// Paint a sky behind the garden [default: none, the terminal's background]
+    #[arg(long, value_enum)]
+    pub sky: Option<Sky>,
+
+    /// What falls on the garden
+    #[arg(long, value_enum, default_value_t = Weather::Clear)]
+    pub weather: Weather,
+
+    /// Let a breeze sway the garden
+    #[arg(long)]
+    pub wind: bool,
+
+    /// Invite butterflies and bees, or fireflies under a night sky
+    #[arg(long)]
+    pub visitors: bool,
 
     /// Colors the terminal supports
     #[arg(long, value_enum, default_value_t = ColorDepth::Truecolor)]

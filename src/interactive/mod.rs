@@ -5,6 +5,7 @@ mod session;
 mod status;
 
 use std::io::{self, IsTerminal, Write};
+use std::time::Instant;
 
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{self, Event};
@@ -15,15 +16,21 @@ use crossterm::{execute, queue};
 use crate::ansi::ColorDepth;
 use crate::cli::{MIN_COLUMNS, MIN_ROWS};
 use crate::display::{BLOOM_FRAMES, FRAME_INTERVAL, Screen};
-use crate::garden::{Garden, Planting};
+use crate::garden::Planting;
 use crate::rng::{self, Rng};
+use crate::scene::{Atmosphere, Moment, Scene};
 use session::{Change, Session};
 use status::STATUS_ROWS;
 
 const TOO_SMALL: &str = "Make the terminal a little bigger to see the garden. (q quits)";
 
 /// Runs until the user quits, and returns the seed of the last garden on screen.
-pub fn run(planting: Planting, first_seed: u64, depth: ColorDepth) -> io::Result<u64> {
+pub fn run(
+    planting: Planting,
+    atmosphere: Atmosphere,
+    first_seed: u64,
+    depth: ColorDepth,
+) -> io::Result<u64> {
     let mut out = io::stdout();
     if !out.is_terminal() {
         return Err(io::Error::other(
@@ -31,11 +38,11 @@ pub fn run(planting: Planting, first_seed: u64, depth: ColorDepth) -> io::Result
         ));
     }
     let _screen = FullScreen::enter(&mut out)?;
-    let mut session = Session::new(planting, first_seed, rng::from_clock());
+    let mut session = Session::new(planting, atmosphere, first_seed, rng::from_clock());
     let mut view = View::new(terminal::size()?, depth, &session);
     loop {
         view.draw(&mut out, &session)?;
-        match next_event(view.is_blooming())? {
+        match next_event(view.is_animating(&session))? {
             None => view.advance_bloom(),
             Some(Event::Key(key)) => {
                 let Some(command) = controls::command_for(key) else {
@@ -90,9 +97,12 @@ struct View {
     terminal: (u16, u16),
     depth: ColorDepth,
     /// `None` while the terminal is too small to hold a garden.
-    bed: Option<(Screen, Garden)>,
+    bed: Option<(Screen, Scene)>,
     /// Frame of the bloom animation; `BLOOM_FRAMES` once fully grown.
     frame: usize,
+    /// When the session began. Wind, weather and visitors keep time from here, so they
+    /// carry on smoothly from one garden to the next.
+    opened: Instant,
 }
 
 impl View {
@@ -102,6 +112,7 @@ impl View {
             depth,
             bed: None,
             frame: 0,
+            opened: Instant::now(),
         };
         view.replant(session);
         view
@@ -118,7 +129,7 @@ impl View {
                 self.frame = BLOOM_FRAMES;
             }
             Change::Replayed => self.frame = 0,
-            Change::Unchanged | Change::Quit => {}
+            Change::Repainted | Change::Unchanged | Change::Quit => {}
         }
     }
 
@@ -139,18 +150,19 @@ impl View {
                 depth: self.depth,
             };
             let mut rng = Rng::new(session.seed());
-            let garden = Garden::plan(
+            let scene = Scene::plan(
                 session.planting(),
                 screen.pixel_width(),
                 screen.pixel_height(),
                 &mut rng,
             );
-            (screen, garden)
+            (screen, scene)
         });
     }
 
-    fn is_blooming(&self) -> bool {
-        self.frame < BLOOM_FRAMES
+    /// Whether the picture changes without the user doing anything.
+    fn is_animating(&self, session: &Session) -> bool {
+        self.bed.is_some() && (self.frame < BLOOM_FRAMES || session.atmosphere().is_lively())
     }
 
     fn advance_bloom(&mut self) {
@@ -160,22 +172,26 @@ impl View {
     fn flowers(&self) -> usize {
         self.bed
             .as_ref()
-            .map_or(0, |(_, garden)| garden.flower_count())
+            .map_or(0, |(_, scene)| scene.flower_count())
     }
 
     fn draw(&self, out: &mut impl Write, session: &Session) -> io::Result<()> {
-        let Some((screen, garden)) = &self.bed else {
+        let Some((screen, scene)) = &self.bed else {
             queue!(out, Clear(ClearType::All), MoveTo(0, 0), Print(TOO_SMALL))?;
             return out.flush();
         };
-        let progress = self.frame as f32 / BLOOM_FRAMES as f32;
+        let moment = Moment {
+            progress: self.frame as f32 / BLOOM_FRAMES as f32,
+            time: self.opened.elapsed().as_secs_f32(),
+        };
         let mut rows = 0..;
         // Garden lines span the full width, so they overwrite the previous frame as they go.
-        for (line, row) in screen.render(garden, progress).iter().zip(rows.by_ref()) {
+        let lines = screen.render(scene, session.atmosphere(), moment);
+        for (line, row) in lines.iter().zip(rows.by_ref()) {
             queue!(out, MoveTo(0, row), Print(line))?;
         }
         let status_lines =
-            status::status_lines(session, garden.flower_count(), screen.columns, self.depth);
+            status::status_lines(session, scene.flower_count(), screen.columns, self.depth);
         for (line, row) in status_lines.iter().zip(rows) {
             queue!(
                 out,

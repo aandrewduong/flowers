@@ -9,7 +9,12 @@ mod garden;
 mod geometry;
 mod interactive;
 mod rng;
+mod scene;
 mod shape;
+mod sky;
+mod visitors;
+mod weather;
+mod wind;
 
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
@@ -20,8 +25,9 @@ use crossterm::terminal;
 use cli::{Args, MIN_ROWS};
 use display::Screen;
 use flower::Species;
-use garden::{Garden, Planting};
+use garden::Planting;
 use rng::Rng;
+use scene::{Atmosphere, Scene};
 
 /// Used when stdout isn't a terminal we can measure.
 const FALLBACK_COLUMNS: usize = 80;
@@ -50,7 +56,7 @@ fn run(args: &Args) -> io::Result<()> {
         .seed
         .unwrap_or_else(|| rng::fresh_seed(&mut rng::from_clock()));
     let last_seed = if args.interactive {
-        interactive::run(planting, seed, args.colors)?
+        interactive::run(planting, atmosphere_for(args), seed, args.colors)?
     } else {
         print_garden(args, &planting, seed)?;
         seed
@@ -64,7 +70,7 @@ fn print_garden(args: &Args, planting: &Planting, seed: u64) -> io::Result<()> {
         .ok()
         .map(|(columns, rows)| (usize::from(columns), usize::from(rows)));
     let screen = screen_for(args, terminal);
-    let garden = Garden::plan(
+    let scene = Scene::plan(
         planting,
         screen.pixel_width(),
         screen.pixel_height(),
@@ -74,10 +80,11 @@ fn print_garden(args: &Args, planting: &Planting, seed: u64) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     // Redrawing in place only works when the whole garden fits on screen.
     let can_animate = stdout.is_terminal() && terminal.is_some_and(|(_, rows)| screen.rows < rows);
+    let atmosphere = atmosphere_for(args);
     if args.bloom && can_animate {
-        display::play_bloom(&mut stdout, &garden, &screen)
+        display::play_bloom(&mut stdout, &scene, &atmosphere, &screen)
     } else {
-        display::show(&mut stdout, &garden, &screen)
+        display::show(&mut stdout, &scene, &atmosphere, &screen)
     }
 }
 
@@ -108,6 +115,15 @@ fn planting_for(args: &Args) -> Planting {
             args.kinds.clone()
         },
         grass: !args.no_grass,
+    }
+}
+
+fn atmosphere_for(args: &Args) -> Atmosphere {
+    Atmosphere {
+        sky: args.sky,
+        weather: args.weather,
+        wind: args.wind,
+        visitors: args.visitors,
     }
 }
 

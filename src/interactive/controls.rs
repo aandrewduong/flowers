@@ -15,8 +15,20 @@ pub enum Command {
     MoreFlowers,
     FewerFlowers,
     ToggleGrass,
+    /// Moves on to the next time of day, and after the last back to no sky at all.
+    NextSky,
+    ToggleRain,
+    ToggleWind,
+    ToggleVisitors,
     Quit,
 }
+
+/// Keys that change the garden's surroundings. The status bar shows each beside the
+/// setting it changes, so they aren't repeated in `KEY_HINTS`.
+pub const SKY_KEY: char = 's';
+pub const RAIN_KEY: char = 'r';
+pub const WIND_KEY: char = 'w';
+pub const VISITORS_KEY: char = 'v';
 
 /// Reminders shown in the status bar, as (key, what it does). Species toggles aren't
 /// listed because the species row already shows each one's number.
@@ -56,6 +68,10 @@ fn command_for_character(character: char) -> Option<Command> {
         'n' => Some(Command::NewGarden),
         'b' => Some(Command::ReplayBloom),
         'g' => Some(Command::ToggleGrass),
+        SKY_KEY => Some(Command::NextSky),
+        RAIN_KEY => Some(Command::ToggleRain),
+        WIND_KEY => Some(Command::ToggleWind),
+        VISITORS_KEY => Some(Command::ToggleVisitors),
         'q' => Some(Command::Quit),
         '0' => Some(Command::AllSpecies),
         // `=` and `_` share keys with `+` and `-`, so they work without Shift.
@@ -90,6 +106,14 @@ mod tests {
         }
         assert_eq!(press(KeyCode::Char('9')), None);
         assert_eq!(press(KeyCode::Char('0')), Some(Command::AllSpecies));
+    }
+
+    #[test]
+    fn letters_change_the_surroundings() {
+        assert_eq!(press(KeyCode::Char('s')), Some(Command::NextSky));
+        assert_eq!(press(KeyCode::Char('r')), Some(Command::ToggleRain));
+        assert_eq!(press(KeyCode::Char('w')), Some(Command::ToggleWind));
+        assert_eq!(press(KeyCode::Char('v')), Some(Command::ToggleVisitors));
     }
 
     #[test]

@@ -4,6 +4,9 @@ use super::controls::Command;
 use crate::flower::Species;
 use crate::garden::{MAX_FLOWERS, Planting};
 use crate::rng::{Rng, fresh_seed};
+use crate::scene::Atmosphere;
+use crate::sky::Sky;
+use crate::weather::Weather;
 
 /// What the screen has to do after a command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,12 +17,15 @@ pub enum Change {
     Replanted,
     /// Grow the same garden again from bare soil.
     Replayed,
+    /// The same garden in different surroundings: nothing regrows.
+    Repainted,
     Unchanged,
     Quit,
 }
 
 pub struct Session {
     planting: Planting,
+    atmosphere: Atmosphere,
     /// Seeds of every garden shown so far, oldest first.
     history: Vec<u64>,
     /// Index into `history` of the garden on screen.
@@ -29,9 +35,10 @@ pub struct Session {
 
 impl Session {
     /// `seeds` supplies the seeds for gardens grown during the session.
-    pub fn new(planting: Planting, first_seed: u64, seeds: Rng) -> Self {
+    pub fn new(planting: Planting, atmosphere: Atmosphere, first_seed: u64, seeds: Rng) -> Self {
         Self {
             planting,
+            atmosphere,
             history: vec![first_seed],
             position: 0,
             seeds,
@@ -40,6 +47,10 @@ impl Session {
 
     pub fn planting(&self) -> &Planting {
         &self.planting
+    }
+
+    pub fn atmosphere(&self) -> &Atmosphere {
+        &self.atmosphere
     }
 
     pub fn seed(&self) -> u64 {
@@ -60,6 +71,28 @@ impl Session {
             Command::ToggleGrass => {
                 self.planting.grass = !self.planting.grass;
                 Change::Replanted
+            }
+            Command::NextSky => {
+                self.atmosphere.sky = match self.atmosphere.sky {
+                    None => Some(Sky::ALL[0]),
+                    Some(sky) => sky.later(),
+                };
+                Change::Repainted
+            }
+            Command::ToggleRain => {
+                self.atmosphere.weather = match self.atmosphere.weather {
+                    Weather::Clear => Weather::Rain,
+                    Weather::Rain => Weather::Clear,
+                };
+                Change::Repainted
+            }
+            Command::ToggleWind => {
+                self.atmosphere.wind = !self.atmosphere.wind;
+                Change::Repainted
+            }
+            Command::ToggleVisitors => {
+                self.atmosphere.visitors = !self.atmosphere.visitors;
+                Change::Repainted
             }
             Command::Quit => Change::Quit,
         }
@@ -134,7 +167,7 @@ mod tests {
             species: Species::ALL.to_vec(),
             grass: true,
         };
-        Session::new(planting, 1, Rng::new(7))
+        Session::new(planting, Atmosphere::default(), 1, Rng::new(7))
     }
 
     #[test]
@@ -203,6 +236,45 @@ mod tests {
 
         let most = usize::from(MAX_FLOWERS);
         assert_eq!(session.apply(Command::MoreFlowers, most), Change::Unchanged);
+    }
+
+    #[test]
+    fn sky_runs_through_the_day_and_back_to_none() {
+        let mut session = session();
+        assert_eq!(session.atmosphere().sky, None);
+        for sky in Sky::ALL {
+            assert_eq!(session.apply(Command::NextSky, 5), Change::Repainted);
+            assert_eq!(session.atmosphere().sky, Some(sky));
+        }
+        session.apply(Command::NextSky, 5);
+        assert_eq!(session.atmosphere().sky, None);
+    }
+
+    #[test]
+    fn surroundings_toggle_without_regrowing_the_garden() {
+        let mut session = session();
+        let planting = session.planting().clone();
+        for command in [
+            Command::ToggleRain,
+            Command::ToggleWind,
+            Command::ToggleVisitors,
+        ] {
+            assert_eq!(session.apply(command, 5), Change::Repainted);
+        }
+        assert_eq!(
+            *session.atmosphere(),
+            Atmosphere {
+                sky: None,
+                weather: Weather::Rain,
+                wind: true,
+                visitors: true,
+            }
+        );
+        assert_eq!(session.seed(), 1);
+        assert_eq!(*session.planting(), planting);
+
+        session.apply(Command::ToggleRain, 5);
+        assert_eq!(session.atmosphere().weather, Weather::Clear);
     }
 
     #[test]

@@ -1,13 +1,16 @@
-//! The two lines under the interactive garden: what's growing, and what the keys do.
+//! The lines under the interactive garden: what's growing, what surrounds it, and what
+//! the keys do.
 
-use super::controls::KEY_HINTS;
+use super::controls::{KEY_HINTS, RAIN_KEY, SKY_KEY, VISITORS_KEY, WIND_KEY};
 use super::session::Session;
 use crate::ansi::{self, ColorDepth};
 use crate::color::Hsl;
 use crate::flower::Species;
 use crate::garden::Planting;
+use crate::scene::Atmosphere;
+use crate::weather::Weather;
 
-pub const STATUS_ROWS: usize = 2;
+pub const STATUS_ROWS: usize = 3;
 
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
@@ -23,6 +26,7 @@ pub fn status_lines(
     let width = columns.saturating_sub(1);
     [
         fit(&species_spans(session.planting()), width, depth),
+        fit(&atmosphere_spans(session.atmosphere()), width, depth),
         fit(&info_spans(session.seed(), flowers), width, depth),
     ]
 }
@@ -70,6 +74,34 @@ fn species_spans(planting: &Planting) -> Vec<Span> {
             [
                 Span::new(format!(" {number} "), Tone::Dim),
                 Span::new(species.name(), tone),
+            ]
+        })
+        .collect()
+}
+
+/// Each part of the surroundings beside the key that changes it, lit up if it's on.
+fn atmosphere_spans(atmosphere: &Atmosphere) -> Vec<Span> {
+    let sky = match atmosphere.sky {
+        Some(sky) => format!("{} sky", sky.name()),
+        None => "sky".to_owned(),
+    };
+    let settings = [
+        (SKY_KEY, sky, atmosphere.sky.is_some()),
+        (
+            RAIN_KEY,
+            "rain".to_owned(),
+            atmosphere.weather == Weather::Rain,
+        ),
+        (WIND_KEY, "wind".to_owned(), atmosphere.wind),
+        (VISITORS_KEY, "visitors".to_owned(), atmosphere.visitors),
+    ];
+    settings
+        .into_iter()
+        .flat_map(|(key, label, on)| {
+            let tone = if on { Tone::Bold } else { Tone::Dim };
+            [
+                Span::new(format!(" {key} "), Tone::Dim),
+                Span::new(label, tone),
             ]
         })
         .collect()
@@ -124,6 +156,7 @@ fn swatch(species: Species) -> Hsl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sky::Sky;
 
     /// The text a terminal would show, without colour escapes.
     fn visible(line: &str) -> String {
@@ -169,6 +202,33 @@ mod tests {
             visible(&fit(&spans, 200, ColorDepth::Truecolor))
                 .starts_with(" 1 daisy 2 sunflower 3 rose")
         );
+    }
+
+    #[test]
+    fn atmosphere_row_lights_up_what_is_on() {
+        let atmosphere = Atmosphere {
+            sky: Some(Sky::Dusk),
+            wind: true,
+            ..Atmosphere::default()
+        };
+        let spans = atmosphere_spans(&atmosphere);
+        let tone_of = |name: &str| {
+            &spans
+                .iter()
+                .find(|span| span.text == name)
+                .expect("listed")
+                .tone
+        };
+        assert!(matches!(tone_of("dusk sky"), Tone::Bold));
+        assert!(matches!(tone_of("wind"), Tone::Bold));
+        assert!(matches!(tone_of("rain"), Tone::Dim));
+        assert!(matches!(tone_of("visitors"), Tone::Dim));
+        assert_eq!(
+            visible(&fit(&spans, 200, ColorDepth::Truecolor)),
+            " s dusk sky r rain w wind v visitors"
+        );
+        let plain = atmosphere_spans(&Atmosphere::default());
+        assert!(visible(&fit(&plain, 200, ColorDepth::Truecolor)).starts_with(" s sky r rain"));
     }
 
     #[test]

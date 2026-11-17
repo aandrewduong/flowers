@@ -61,6 +61,18 @@ impl Stem {
         (-direction.x).atan2(-direction.y)
     }
 
+    /// The stem with its head pushed `sway` pixels sideways. Only the tip moves, so the
+    /// bend grows with the square of the height and the stem stays rooted where it was.
+    pub fn swayed(&self, sway: f32) -> Self {
+        Self {
+            base: self.base,
+            control: self.control,
+            tip: self.tip + Point::new(sway, 0.0),
+            thickness: self.thickness,
+            colors: self.colors.clone(),
+        }
+    }
+
     /// Paints the stem from the ground up to `growth` (0–1) of its length.
     pub fn paint(&self, canvas: &mut Canvas, growth: f32) {
         if growth <= 0.0 {
@@ -103,7 +115,6 @@ fn nearest_on_polyline(points: &[Point], point: Point) -> (f32, f32) {
 }
 
 pub struct Leaf {
-    pub anchor: Point,
     /// Direction from anchor to tip, in screen radians (y points down).
     pub angle: f32,
     pub length: f32,
@@ -116,18 +127,20 @@ pub struct Leaf {
 }
 
 impl Leaf {
-    /// Paints the leaf unfurled to `growth` (0–1) of its full size.
-    pub fn paint(&self, canvas: &mut Canvas, growth: f32) {
+    /// Paints the leaf unfurled to `growth` (0–1) of its full size. `anchor` is where it
+    /// joins its stem, and `turn` (radians) swings it away from its resting angle.
+    pub fn paint(&self, canvas: &mut Canvas, anchor: Point, turn: f32, growth: f32) {
         let length = self.length * growth;
         if length <= 0.0 {
             return;
         }
         let width = self.width * growth;
         let droop = self.droop * growth;
-        let tip = self.anchor + Point::from_angle(self.angle) * length;
-        let bounds = Bounds::enclosing(&[self.anchor, tip]).expand(width + droop.abs());
+        let angle = self.angle + turn;
+        let tip = anchor + Point::from_angle(angle) * length;
+        let bounds = Bounds::enclosing(&[anchor, tip]).expand(width + droop.abs());
         canvas.paint(bounds, |point| {
-            let local = (point - self.anchor).rotate(-self.angle);
+            let local = (point - anchor).rotate(-angle);
             let along = local.x / length;
             let half_width = width * Taper::LANCE.width_at(along);
             if half_width <= 0.0 {
@@ -158,12 +171,13 @@ pub struct GrassBlade {
 }
 
 impl GrassBlade {
-    pub fn paint(&self, canvas: &mut Canvas, growth: f32) {
+    /// `bend` pushes the tip further sideways, as a fraction of the blade's height.
+    pub fn paint(&self, canvas: &mut Canvas, growth: f32, bend: f32) {
         let height = self.height * growth;
         if height <= 0.0 {
             return;
         }
-        let sway = self.sway * growth;
+        let sway = (self.sway + bend * self.height) * growth;
         let tip = self.base + Point::new(sway, -height);
         canvas.paint(
             Bounds::enclosing(&[self.base, tip]).expand(self.width),

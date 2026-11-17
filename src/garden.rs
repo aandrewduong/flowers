@@ -9,6 +9,7 @@ use crate::flower::{self, Blueprint, Head, LeafPlan, Species};
 use crate::foliage::{GrassBlade, Leaf, Stem, foliage_green};
 use crate::geometry::{Point, smoothstep};
 use crate::rng::Rng;
+use crate::wind::Wind;
 
 /// Gap between flowers, as a fraction of the garden height, when no count is given.
 const NATURAL_SPACING: f32 = 0.3;
@@ -28,6 +29,15 @@ const GRASS_BLADES_PER_PIXEL: f32 = 1.3;
 const GRASS_HEIGHT: Range<f32> = 0.04..0.13;
 const GRASS_SWAY: Range<f32> = -0.5..0.5;
 const GRASS_WIDTH: Range<f32> = 0.5..0.9;
+
+/// How far the strongest gust pushes a flower head sideways, as a fraction of its stem's height.
+const STEM_SWAY: f32 = 0.08;
+/// Radians the strongest gust turns a leaf downwind.
+const LEAF_FLUTTER: f32 = 0.3;
+/// How far the strongest gust bends a grass blade's tip, as a fraction of its height.
+const GRASS_BEND: f32 = 0.6;
+/// How far up a flower head, from where it meets the stem to its top, a visitor settles.
+const PERCH_HEIGHT: f32 = 0.5;
 
 /// Plants start sprouting at staggered moments within this opening share of the animation.
 const SPROUT_STAGGER: f32 = 0.3;
@@ -107,14 +117,21 @@ impl Garden {
         self.plants.len()
     }
 
-    /// Paints the garden `progress` (0–1) of the way from bare soil to full bloom.
-    pub fn paint(&self, canvas: &mut Canvas, progress: f32) {
+    /// Where on each flower a visitor could settle, in pixels.
+    pub fn perches(&self) -> Vec<Point> {
+        self.plants.iter().map(Plant::perch).collect()
+    }
+
+    /// Paints the garden `progress` (0–1) of the way from bare soil to full bloom, swaying
+    /// in `wind`.
+    pub fn paint(&self, canvas: &mut Canvas, progress: f32, wind: &Wind) {
         for plant in &self.plants {
-            plant.paint(canvas, progress);
+            plant.paint(canvas, progress, wind);
         }
         let grass_growth = smoothstep(0.0, GRASS_GROWTH_END, progress);
         for blade in &self.grass {
-            blade.paint(canvas, grass_growth);
+            let bend = wind.push_at(blade.base.x) * GRASS_BEND;
+            blade.paint(canvas, grass_growth, bend);
         }
     }
 }
@@ -170,7 +187,7 @@ impl Plant {
                 (1.0, green.shifted(0.0, 0.0, -0.1).to_rgb()),
             ]),
         };
-        let leaves = sprout_leaves(&stem, &leaves, green, rng);
+        let leaves = sprout_leaves(&leaves, green, rng);
         Self {
             stem,
             leaves,
@@ -179,24 +196,36 @@ impl Plant {
         }
     }
 
-    fn paint(&self, canvas: &mut Canvas, progress: f32) {
+    fn perch(&self) -> Point {
+        self.stem.tip - Point::new(0.0, self.head.extent().above * PERCH_HEIGHT)
+    }
+
+    fn paint(&self, canvas: &mut Canvas, progress: f32, wind: &Wind) {
         let age = ((progress - self.sprouts_at) / (1.0 - SPROUT_STAGGER)).clamp(0.0, 1.0);
         let stem_growth = smoothstep(0.0, STEM_GROWTH_END, age);
-        self.stem.paint(canvas, stem_growth);
+        let push = wind.push_at(self.stem.base.x);
+        let stem_height = self.stem.base.y - self.stem.tip.y;
+        let stem = self.stem.swayed(push * STEM_SWAY * stem_height);
+        stem.paint(canvas, stem_growth);
         for StemLeaf { leaf, along } in &self.leaves {
             let unfurled = (along + LEAF_UNFURL).min(1.0);
-            leaf.paint(canvas, smoothstep(*along, unfurled, stem_growth));
+            leaf.paint(
+                canvas,
+                stem.point_at(*along),
+                push * LEAF_FLUTTER,
+                smoothstep(*along, unfurled, stem_growth),
+            );
         }
         self.head.paint(
             canvas,
-            self.stem.point_at(stem_growth),
-            self.stem.lean_at(stem_growth),
+            stem.point_at(stem_growth),
+            stem.lean_at(stem_growth),
             smoothstep(BLOOM_PHASE.start, BLOOM_PHASE.end, age),
         );
     }
 }
 
-fn sprout_leaves(stem: &Stem, plan: &LeafPlan, green: Hsl, rng: &mut Rng) -> Vec<StemLeaf> {
+fn sprout_leaves(plan: &LeafPlan, green: Hsl, rng: &mut Rng) -> Vec<StemLeaf> {
     let first_side = rng.sign();
     let colors = Gradient::between(
         green.shifted(0.0, 0.0, -0.08).to_rgb(),
@@ -212,7 +241,6 @@ fn sprout_leaves(stem: &Stem, plan: &LeafPlan, green: Hsl, rng: &mut Rng) -> Vec
             let along = rng.range(plan.attach.clone());
             let size = rng.range(LEAF_SIZE_JITTER);
             let leaf = Leaf {
-                anchor: stem.point_at(along),
                 // Straight up, then tipped toward this leaf's side.
                 angle: -FRAC_PI_2 + side * rng.range(plan.spread.clone()),
                 length: plan.length * size,

@@ -26,9 +26,42 @@ impl Canvas {
         }
     }
 
+    /// The whole drawing surface, in output pixels.
+    pub fn bounds(&self) -> Bounds {
+        Bounds {
+            min: Point::new(0.0, 0.0),
+            max: Point::new(self.width as f32, self.height as f32),
+        }
+    }
+
     /// Paints over every sample inside `bounds` that `shader` returns a colour for.
     /// Coordinates are in output pixels with y pointing down.
     pub fn paint(&mut self, bounds: Bounds, shader: impl Fn(Point) -> Option<Rgb>) {
+        self.visit(bounds, |point, sample| {
+            if let Some(color) = shader(point) {
+                *sample = Some(color);
+            }
+        });
+    }
+
+    /// Like [`paint`](Self::paint), but `shader` also returns an opacity (0–1) and the
+    /// colour is mixed into whatever is already there.
+    pub fn blend(&mut self, bounds: Bounds, shader: impl Fn(Point) -> Option<(Rgb, f32)>) {
+        self.visit(bounds, |point, sample| {
+            let Some((color, opacity)) = shader(point) else {
+                return;
+            };
+            match sample {
+                Some(beneath) => *beneath = beneath.mix(color, opacity.clamp(0.0, 1.0)),
+                // The terminal's background can't be blended with, so a sample over bare
+                // canvas is either solid or absent, by the same rule that resolves pixels.
+                None if opacity >= COVERAGE_THRESHOLD => *sample = Some(color),
+                None => {}
+            }
+        });
+    }
+
+    fn visit(&mut self, bounds: Bounds, mut each: impl FnMut(Point, &mut Option<Rgb>)) {
         let scale = self.samples as f32;
         let columns = self.width * self.samples;
         let rows = self.height * self.samples;
@@ -37,9 +70,7 @@ impl Canvas {
         for sy in y_start..y_end {
             for sx in x_start..x_end {
                 let point = Point::new((sx as f32 + 0.5) / scale, (sy as f32 + 0.5) / scale);
-                if let Some(color) = shader(point) {
-                    self.subpixels[sy * columns + sx] = Some(color);
-                }
+                each(point, &mut self.subpixels[sy * columns + sx]);
             }
         }
     }
@@ -134,6 +165,28 @@ mod tests {
         canvas.paint(everywhere, |_| Some(RED));
         canvas.paint(everywhere, |point| (point.x > 0.5).then_some(BLUE));
         assert_eq!(canvas.resolve().pixel(0, 0), Some(Rgb::new(0.5, 0.0, 0.5)));
+    }
+
+    #[test]
+    fn blending_mixes_into_what_is_already_painted() {
+        let mut canvas = Canvas::new(1, 1, 1);
+        canvas.paint(canvas.bounds(), |_| Some(RED));
+        canvas.blend(canvas.bounds(), |_| Some((BLUE, 0.25)));
+        assert_eq!(
+            canvas.resolve().pixel(0, 0),
+            Some(Rgb::new(0.75, 0.0, 0.25))
+        );
+    }
+
+    #[test]
+    fn blending_over_bare_canvas_is_solid_or_absent() {
+        let mut canvas = Canvas::new(2, 1, 1);
+        canvas.blend(canvas.bounds(), |point| {
+            Some((BLUE, if point.x < 1.0 { 0.8 } else { 0.3 }))
+        });
+        let image = canvas.resolve();
+        assert_eq!(image.pixel(0, 0), Some(BLUE));
+        assert_eq!(image.pixel(1, 0), None);
     }
 
     #[test]
