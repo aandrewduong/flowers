@@ -3,7 +3,7 @@
 <p align="center"><strong>Your terminal deserves a garden.</strong></p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="flowers in interactive mode: a garden sprouts and blooms, a new one grows, species are switched off until only tulips and lavender remain, more flowers are added, and every species comes back for one last garden">
+  <img src="assets/demo.gif" alt="flowers in interactive mode: a garden sprouts and blooms, a breeze starts it swaying, butterflies and bees arrive, the sky turns from dawn to day to dusk, rain falls, and night brings stars, a crescent moon and fireflies before a new garden grows">
 </p>
 
 Your terminal spends all day showing you logs, diffs and stack traces. Give it a break. 🌼
@@ -22,7 +22,9 @@ into interactive mode and grow garden after garden from your keyboard.
 - 🌻 **Eight species**, from towering sunflowers to tiny lavender florets, each with several palettes and petal-by-petal variation.
 - 🎨 **Silky-smooth art**: anti-aliased shapes in full 24-bit color, two square pixels packed into every character cell.
 - 🌱 **Watch it grow**: stems shoot up, leaves unfurl, and flowers pop open one after another.
-- 🎮 **Interactive mode**: grow new gardens, flip back to old favorites, and switch species, flower count and grass on the fly.
+- 🍃 **A garden that moves**: a breeze rolls through in gusts, butterflies and bees hop from bloom to bloom, and fireflies come out at night.
+- 🌅 **Skies and weather**: plant under a dawn, day, dusk or starry night sky, and let it rain.
+- 🎮 **Interactive mode**: grow new gardens, flip back to old favorites, and switch species, flower count, grass, sky, weather, wind and visitors on the fly.
 - 🔁 **Regrow your favorites**: every run prints its seed, and the same seed, size and options always grow the same garden.
 - 🔌 **Pipe-friendly**: the art goes to stdout and the seed to stderr, so the picture comes out clean wherever you send it.
 
@@ -46,6 +48,8 @@ flowers -n 1             # one big, show-stopping flower
 flowers --bloom          # watch it sprout and bloom
 flowers -k rose,tulip    # a bouquet of just roses and tulips
 flowers -s 7             # regrow a garden from its seed
+flowers --sky dusk       # the same idea, at sunset
+flowers --sky night --visitors   # stars, a crescent moon and fireflies
 flowers -i               # the full interactive experience
 ```
 
@@ -68,10 +72,15 @@ of the garden on screen, so the one you fell for is never lost.
 | `0` | Bring every species back |
 | `+` / `-` (or `↑` / `↓`) | More flowers, or fewer |
 | `g` | Grass on or off |
+| `s` | Step the sky through dawn, day, dusk and night, then back to none |
+| `r` | Rain on or off |
+| `w` | Wind on or off |
+| `v` | Visitors on or off: butterflies and bees, or fireflies under a night sky |
 | `q` / `esc` / `ctrl-c` | Say goodbye |
 
-Want to start somewhere specific? `--kind`, `--count`, `--seed`, `--no-grass` and `--colors`
-all set where the session begins.
+Want to start somewhere specific? `--kind`, `--count`, `--seed`, `--no-grass`, `--sky`,
+`--weather`, `--wind`, `--visitors` and `--colors` all set where the session begins. Try
+`flowers -i --sky dusk --wind --visitors` for a garden that never sits still.
 
 ## 💐 Meet the flowers
 
@@ -102,7 +111,15 @@ all set where the session begins.
 | `-b, --bloom` | Animate the garden growing |
 | `-i, --interactive` | Browse gardens full-screen with the keyboard |
 | `--no-grass` | Leave out the grass |
+| `--sky <SKY>` | Paint a sky behind the garden: `dawn`, `day`, `dusk` or `night` (default: none) |
+| `--weather <WEATHER>` | `clear` (the default) or `rain`, which also clouds over the sky |
+| `--wind` | Let a breeze sway the garden |
+| `--visitors` | Invite butterflies and bees, or fireflies under a night sky |
 | `--colors ansi256` | For terminals without 24-bit color |
+
+Wind, rain and visitors move in interactive mode and while `--bloom` plays. A plain
+`flowers --wind` prints a single moment: the garden caught mid-gust. Rain looks its best
+against a sky, where it can blend in softly.
 
 ## 🖥️ Terminal support
 
@@ -122,6 +139,11 @@ edges, then printed with the half-block character `▀`. Its foreground color is
 and its background the bottom one, so every character cell shows two square pixels. A tiny
 random number generator, fed by the seed, makes every choice along the way. That's why the
 same seed, size and options always regrow the same garden.
+
+Movement is math too. Wind is a pair of waves rolling across the garden, and each stem bends
+from its tip while its base stays rooted. Butterflies and bees fly a round of the blooms,
+easing in and out of every hop so they linger where they land. None of it touches the seed's
+choices, so a garden grows the same flowers with or without the weather.
 
 🏖️ **Fun fact:** `--seed` takes any whole number up to 18,446,744,073,709,551,615. That's
 more than twice the estimated number of grains of sand on Earth.
